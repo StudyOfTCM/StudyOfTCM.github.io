@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中医综合智能组卷系统</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome 图标 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2c7be5;
+            --secondary-bg: #f5f9fc;
+        }
+        body {
+            background-color: var(--secondary-bg);
+            color: #333;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            padding-bottom: 60px;
+        }
+        
+        /* 顶部导航 */
+        .navbar-custom {
+            background-color: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+        .navbar-brand {
+            font-weight: 700;
+            color: var(--primary-color) !important;
+        }
+
+        /* 步骤容器 */
+        .step-container {
+            display: none;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        .step-container.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 课程卡片 */
+        .course-card {
+            background: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            height: 100%;
+        }
+        .course-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(44, 123, 229, 0.15);
+            border-bottom: 3px solid var(--primary-color);
+        }
+        .course-icon {
+            font-size: 3rem;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            opacity: 0.8;
+        }
+        .course-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        /* 题目卡片 */
+        .question-card {
+            background: #fff;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid transparent;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            transition: border-color 0.3s;
+        }
+        .question-card:hover {
+            border-left-color: var(--primary-color);
+        }
+        
+        /* 案例背景 */
+        .case-context {
+            background-color: #eef2f7;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            color: #495057;
+            border-left: 4px solid #6c757d;
+        }
+
+        /* 结果反馈 */
+        .result-box {
+            margin-top: 15px;
+            padding: 12px 15px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        .result-correct { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+        .result-wrong { background-color: #f8d7da; color: #842029; border: 1px solid #f5c6cb; }
+
+        /* 悬浮工具栏 */
+        .sticky-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .badge-type { font-size: 0.8em; margin-right: 8px; background-color: var(--primary-color); }
+        .spinner-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; }
+    </style>
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+        <a class="navbar-brand" href="#"><i class="fa-solid fa-book-medical me-2"></i>中医综合智能组卷系统</a>
+        <span class="text-muted small" id="currentCourseDisplay"></span>
+    </div>
+</nav>
+
+<!-- 加载动画 -->
+<div id="loadingSpinner" class="spinner-overlay">
+    <div class="text-center">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-primary">正在加载题库，请稍候...</div>
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- 1. 课程选择区 -->
+    <div id="step1" class="step-container active">
+        <div class="text-center mb-5">
+            <h2 class="fw-bold text-dark">请选择考试科目</h2>
+            <p class="text-muted">系统将自动读取题库文件并进行随机组卷</p>
+        </div>
+        <div class="row g-4 justify-content-center" id="courseGrid">
+            <!-- 课程卡片将由 JS 生成 -->
+        </div>
+    </div>
+
+    <!-- 2. 组卷配置区 -->
+    <div id="step2" class="step-container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-outline-secondary btn-sm me-3" onclick="goToStep(1)">
+                                <i class="fa-solid fa-arrow-left me-1"></i>返回
+                            </button>
+                            <h5 class="mb-0 fw-bold">试卷结构配置</h5>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="alert alert-info d-flex align-items-center mb-4">
+                            <i class="fa-solid fa-database me-2"></i>
+                            <div>当前题库共检测到 <strong id="totalCount">0</strong> 道题目</div>
+                        </div>
+                        
+                        <div class="row g-4" id="configForm">
+                            <!-- 配置项由 JS 生成 -->
+                        </div>
+
+                        <div class="d-grid gap-2 mt-5">
+                            <button class="btn btn-primary btn-lg" onclick="generateExam()">
+                                <i class="fa-solid fa-wand-magic-sparkles me-2"></i>生成试卷并开始考试
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 考试作答区 -->
+    <div id="step3" class="step-container">
+        <!-- 悬浮工具栏 -->
+        <div class="sticky-toolbar">
+            <div class="container">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-outline-secondary me-3" onclick="confirmBackToConfig()">
+                            <i class="fa-solid fa-arrow-left me-1"></i>重选配置
+                        </button>
+                        <h4 class="mb-0 fw-bold text-primary" id="examTitle">模拟试卷</h4>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-success" onclick="submitExam()" id="btnSubmit">
+                            <i class="fa-solid fa-check-double me-1"></i>提交交卷
+                        </button>
+                        <button class="btn btn-warning text-white" onclick="exportToWord()">
+                            <i class="fa-solid fa-file-word me-1"></i>导出Word
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 试卷内容 -->
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div id="examContent">
+                    <!-- 题目渲染区域 -->
+                </div>
+                
+                <!-- 底部提交按钮（重复以便操作） -->
+                <div class="text-center mt-5 mb-5">
+                    <button class="btn btn-primary btn-lg px-5" onclick="submitExam()" id="btnSubmitBottom">
+                        提交交卷查看结果
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- 依赖脚本 -->
+<script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<script>
+    // === 配置数据 ===
+    const courses = [
+        { name: "中医诊断学", file: "中医诊断学.json", icon: "fa-user-doctor" },
+        { name: "经络腧穴学", file: "经络腧穴学.json", icon: "fa-share-nodes" },
+        { name: "中医基础理论", file: "中医基础理论.json", icon: "fa-book-open" },
+        { name: "中医护理学", file: "中医护理学.json", icon: "fa-hand-holding-heart" },
+        { name: "中医临证施护", file: "中医临证施护.json", icon: "fa-stethoscope" }
+    ];
+
+    const typeMap = {
+        'single_choice': { name: '单项选择题', icon: 'fa-check-circle' },
+        'true_false': { name: '判断题', icon: 'fa-xmarks-lines' },
+        'essay': { name: '简答/论述题', icon: 'fa-pen' },
+        'case_analysis': { name: '案例分析题', icon: 'fa-user-injured' }
+    };
+
+    // === 全局状态 ===
+    let currentCourseName = "";
+    let fullQuestionBank = [];
+    let currentExamData = [];
+    let isExamSubmitted = false;
+
+    // === 初始化 ===
+    document.addEventListener('DOMContentLoaded', () => {
+        renderCourseGrid();
+    });
+
+    // 渲染课程网格
+    function renderCourseGrid() {
+        const grid = document.getElementById('courseGrid');
+        grid.innerHTML = courses.map(course => `
+            <div class="col-md-6 col-lg-4">
+                <button class="course-card w-100" onclick="loadCourse('${course.file}', '${course.name}')">
+                    <div class="course-icon"><i class="fa-solid ${course.icon}"></i></div>
+                    <div class="course-title">${course.name}</div>
+                    <div class="text-muted small mt-2">点击加载题库</div>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // 页面跳转控制
+    function goToStep(stepNumber) {
+        document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
+        document.getElementById(`step${stepNumber}`).classList.add('active');
+        
+        // 重置状态
+        if (stepNumber === 1) {
+            document.getElementById('currentCourseDisplay').textContent = "";
+        }
+    }
+
+    // 加载课程数据
+    function loadCourse(fileName, courseName) {
+        const spinner = document.getElementById('loadingSpinner');
+        spinner.style.display = 'flex';
+
+        fetch(fileName)
+            .then(response => {
+                if (!response.ok) throw new Error("文件未找到或网络错误");
+                return response.json();
+            })
+            .then(data => {
+                fullQuestionBank = data;
+                currentCourseName = courseName;
+                document.getElementById('currentCourseDisplay').textContent = `当前科目：${courseName}`;
+                initConfiguration();
+                goToStep(2);
+            })
+            .catch(error => {
+                console.error(error);
+                alert(`无法加载题库文件：${fileName}\n\n原因：\n1. 文件不存在于当前目录下。\n2. 浏览器安全策略限制（CORS）。\n\n解决方法：\n请将所有文件部署到服务器（如 GitHub Pages）或在本地使用 Live Server 运行。`);
+            })
+            .finally(() => {
+                spinner.style.display = 'none';
+            });
+    }
+
+    // 初始化配置面板
+    function initConfiguration() {
+        const groups = {};
+        fullQuestionBank.forEach(q => {
+            if (!groups[q.type]) groups[q.type] = [];
+            groups[q.type].push(q);
+        });
+
+        const container = document.getElementById('configForm');
+        container.innerHTML = '';
+        let total = 0;
+
+        for (const [type, questions] of Object.entries(groups)) {
+            total += questions.length;
+            const typeInfo = typeMap[type] || { name: type, icon: 'fa-question' };
+            const count = questions.length;
+            // 默认选中题目数：如果少于10则全选，否则选10，上限是总数
+            const defaultVal = Math.min(10, count);
+
+            container.innerHTML += `
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">
+                        <i class="fa-solid ${typeInfo.icon} me-1 text-primary"></i>${typeInfo.name}
+                        <span class="badge bg-light text-dark border ms-2">共 ${count} 题</span>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">抽取</span>
+                        <input type="number" class="form-control config-input text-center" 
+                               data-type="${type}" 
+                               value="${defaultVal}" 
+                               min="0" max="${count}">
+                        <span class="input-group-text bg-white">题</span>
+                    </div>
+                </div>
+            `;
+        }
+        document.getElementById('totalCount').innerText = total;
+    }
+
+    // 数组洗牌算法
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    // 生成试卷
+    function generateExam() {
+        currentExamData = [];
+        const inputs = document.querySelectorAll('.config-input');
+        
+        // 分组
+        const groups = {};
+        fullQuestionBank.forEach(q => {
+            if (!groups[q.type]) groups[q.type] = [];
+            groups[q.type].push(q);
+        });
+
+        // 抽取
+        inputs.forEach(input => {
+            const type = input.dataset.type;
+            const num = parseInt(input.value) || 0;
+            if (groups[type] && num > 0) {
+                const shuffled = shuffleArray([...groups[type]]);
+                const selected = shuffled.slice(0, num);
+                
+                // 单选题打乱选项
+                selected.forEach(q => {
+                    if(q.type === 'single_choice') {
+                        q.shuffledOptions = shuffleArray([...q.options]); 
+                    }
+                });
+                
+                currentExamData.push({ type: type, questions: selected });
+            }
+        });
+
+        if (currentExamData.length === 0) {
+            alert("请至少抽取 1 道题目！");
+            return;
+        }
+
+        isExamSubmitted = false;
+        renderExam();
+        goToStep(3);
+    }
+
+    // 渲染试卷
+    function renderExam() {
+        const container = document.getElementById('examContent');
+        container.innerHTML = '';
+        document.getElementById('examTitle').innerText = `${currentCourseName} - 模拟试卷`;
+        
+        // 按钮状态重置
+        document.getElementById('btnSubmit').disabled = false;
+        document.getElementById('btnSubmitBottom').disabled = false;
+
+        let globalIndex = 1;
+
+        currentExamData.forEach(section => {
+            const typeInfo = typeMap[section.type] || { name: section.type };
+            
+            // 题型标题
+            container.innerHTML += `
+                <div class="mt-4 mb-3 d-flex align-items-center border-bottom pb-2">
+                    <h5 class="fw-bold text-primary mb-0"><i class="fa-solid ${typeInfo.icon} me-2"></i>${typeInfo.name}</h5>
+                    <span class="ms-auto text-muted small">共 ${section.questions.length} 题</span>
+                </div>
+            `;
+
+            section.questions.forEach(q => {
+                let html = `<div class="question-card" id="card_${q.id}">`;
+                
+                // 题干
+                html += `<div class="d-flex mb-3">
+                            <div class="fw-bold fs-5 me-2 text-primary">${globalIndex}.</div>
+                            <div class="fs-5">${q.question}</div>
+                         </div>`;
+
+                // 选项区域
+                if (section.type === 'single_choice') {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+                    html += `<div class="ms-4">`;
+                    q.shuffledOptions.forEach((opt, i) => {
+                        html += `
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="q_${q.id}" value="${opt}" id="q_${q.id}_${i}">
+                                <label class="form-check-label" for="q_${q.id}_${i}">
+                                    <span class="fw-bold me-2">${letters[i]}.</span>${opt}
+                                </label>
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
+                } 
+                else if (section.type === 'true_false') {
+                    html += `
+                        <div class="ms-4 d-flex gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="q_${q.id}" value="正确" id="q_${q.id}_t">
+                                <label class="form-check-label text-success fw-bold" for="q_${q.id}_t"><i class="fa-solid fa-check me-1"></i>正确</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="q_${q.id}" value="错误" id="q_${q.id}_f">
+                                <label class="form-check-label text-danger fw-bold" for="q_${q.id}_f"><i class="fa-solid fa-xmark me-1"></i>错误</label>
+                            </div>
+                        </div>
+                    `;
+                }
+                else if (section.type === 'essay') {
+                    html += `<textarea class="form-control ms-4" style="max-width:95%" name="q_${q.id}" rows="4" placeholder="在此输入您的答案..."></textarea>`;
+                }
+                else if (section.type === 'case_analysis') {
+                    html = `<div class="question-card" id="card_${q.id}">`; // 重写整个卡片
+                    html += `<div class="case-context"><i class="fa-solid fa-book-open me-2"></i><strong>案例背景：</strong><br>${q.context}</div>`;
+                    q.questions.forEach((subQ, subIdx) => {
+                        html += `
+                            <div class="mb-2 mt-4 fw-bold text-dark">(${subIdx+1}) ${subQ.question}</div>
+                            <textarea class="form-control mb-2" name="q_${q.id}_${subIdx}" rows="2" placeholder="输入答案..."></textarea>
+                            <div class="result-box" style="display:none;" id="res_${q.id}_${subIdx}"></div>
+                        `;
+                    });
+                    html += `</div>`;
+                    globalIndex++; // 案例大题算1个
+                    container.innerHTML += html;
+                    return; 
+                }
+
+                // 结果反馈区域（非案例题）
+                if (section.type !== 'case_analysis') {
+                    html += `<div class="result-box" style="display:none;" id="res_${q.id}"></div>`;
+                    html += `</div>`;
+                    globalIndex++;
+                    container.innerHTML += html;
+                }
+            });
+        });
+    }
+
+    // 确认返回
+    function confirmBackToConfig() {
+        if (confirm("返回将丢失当前的答题进度，确定要重新配置吗？")) {
+            goToStep(2);
+        }
+    }
+
+    // 提交阅卷
+    function submitExam() {
+        if (isExamSubmitted) return;
+        if (!confirm("提交后将无法修改答案并显示正确解析，确定提交吗？")) return;
+
+        currentExamData.forEach(section => {
+            section.questions.forEach(q => {
+                if (section.type === 'case_analysis') {
+                    q.questions.forEach((subQ, subIdx) => {
+                        const resId = `res_${q.id}_${subIdx}`;
+                        const resBox = document.getElementById(resId);
+                        resBox.style.display = 'block';
+                        resBox.className = "result-box result-correct";
+                        resBox.innerHTML = `<strong><i class="fa-solid fa-lightbulb me-1"></i>参考答案：</strong> ${subQ.answer}`;
+                    });
+                } else {
+                    const resBox = document.getElementById(`res_${q.id}`);
+                    resBox.style.display = 'block';
+
+                    let userVal = '';
+                    let isCorrect = false;
+
+                    if (section.type === 'single_choice' || section.type === 'true_false') {
+                        const checked = document.querySelector(`input[name="q_${q.id}"]:checked`);
+                        userVal = checked ? checked.value : '';
+                        isCorrect = (userVal === q.answer);
+
+                        if (isCorrect) {
+                            resBox.className = "result-box result-correct";
+                            resBox.innerHTML = `<i class="fa-solid fa-circle-check me-1"></i><strong>回答正确</strong>`;
+                        } else {
+                            resBox.className = "result-box result-wrong";
+                            resBox.innerHTML = `<div><i class="fa-solid fa-circle-xmark me-1"></i><strong>回答错误</strong></div><div class="mt-1">正确答案：${q.answer}</div>`;
+                        }
+                    } else {
+                        // 主观题
+                        resBox.className = "result-box result-correct";
+                        resBox.innerHTML = `<strong><i class="fa-solid fa-lightbulb me-1"></i>参考答案：</strong> ${q.answer}`;
+                    }
+                }
+            });
+        });
+
+        isExamSubmitted = true;
+        document.getElementById('btnSubmit').disabled = true;
+        document.getElementById('btnSubmitBottom').disabled = true;
+        document.getElementById('btnSubmit').textContent = "已提交";
+        
+        // 滚动到顶部
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // 导出 Word
+    function exportToWord() {
+        if (!currentExamData.length) return;
+
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = docx;
+        const children = [];
+
+        // 标题
+        children.push(new Paragraph({
+            text: `${currentCourseName} - 模拟试卷`,
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 300 }
+        }));
+
+        const answerKeys = []; 
+        let qIndex = 1;
+
+        currentExamData.forEach(section => {
+            const typeInfo = typeMap[section.type] || { name: section.type };
+            
+            // 大题标题
+            children.push(new Paragraph({
+                text: typeInfo.name,
+                heading: HeadingLevel.HEADING_1,
+                spacing: { before: 200, after: 100 }
+            }));
+            answerKeys.push(new Paragraph({
+                text: typeInfo.name,
+                heading: HeadingLevel.HEADING_2,
+                spacing: { before: 100 }
+            }));
+
+            section.questions.forEach(q => {
+                if (section.type === 'case_analysis') {
+                    // 案例背景
+                    children.push(new Paragraph({
+                        children: [
+                            new TextRun({ text: `【案例 ${qIndex}】`, bold: true }),
+                            new TextRun({ text: q.context, italics: true })
+                        ],
+                        spacing: { before: 100, after: 100 }
+                    }));
+                    
+                    q.questions.forEach((subQ, idx) => {
+                        children.push(new Paragraph({
+                            text: `(${idx+1}) ${subQ.question}`,
+                            spacing: { after: 1200 }
+                        }));
+                        answerKeys.push(new Paragraph({
+                            text: `案例 ${qIndex}-(${idx+1}): ${subQ.answer}`
+                        }));
+                    });
+                    qIndex++;
+                } else {
+                    // 常规题目
+                    children.push(new Paragraph({
+                        children: [ new TextRun({ text: `${qIndex}. ${q.question}`, bold: true }) ],
+                        spacing: { before: 100 }
+                    }));
+
+                    if (section.type === 'single_choice') {
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+                        q.shuffledOptions.forEach((opt, i) => {
+                            children.push(new Paragraph({
+                                text: `${letters[i]}. ${opt}`,
+                                indent: { left: 400 }
+                            }));
+                        });
+                        // 找正确选项的字母
+                        const correctIndex = q.shuffledOptions.findIndex(o => o === q.answer);
+                        const correctLetter = correctIndex !== -1 ? letters[correctIndex] : "?";
+                        answerKeys.push(new Paragraph({ text: `${qIndex}. ${correctLetter}` }));
+                    } else if (section.type === 'true_false') {
+                        children.push(new Paragraph({ text: "(   )", alignment: AlignmentType.RIGHT }));
+                        answerKeys.push(new Paragraph({ text: `${qIndex}. ${q.answer}` }));
+                    } else {
+                        children.push(new Paragraph({ text: " ", spacing: { after: 2000 } })); // 留白
+                        answerKeys.push(new Paragraph({ text: `${qIndex}. ${q.answer}` }));
+                    }
+                    children.push(new Paragraph({ text: "" }));
+                    qIndex++;
+                }
+            });
+        });
+
+        // 答案页
+        children.push(new Paragraph({ children: [new PageBreak()] }));
+        children.push(new Paragraph({
+            text: "参考答案",
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER
+        }));
+        children.push(...answerKeys);
+
+        const doc = new Document({
+            sections: [{ properties: {}, children: children }]
+        });
+
+        Packer.toBlob(doc).then(blob => {
+            saveAs(blob, `${currentCourseName}_模拟试卷.docx`);
+        });
+    }
+</script>
+</body>
+</html>
