@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>中医综合智能组卷系统 v2.0</title>
+    <title>中医综合智能组卷系统 v2.1</title>
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
@@ -38,6 +38,9 @@
         .result-box { margin-top: 15px; padding: 12px 15px; border-radius: 6px; font-size: 0.9rem; display: none; }
         .result-correct { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
         .result-wrong { background-color: #f8d7da; color: #842029; border: 1px solid #f5c6cb; }
+
+        /* 题目来源标签 */
+        .source-tag { display: none; margin-top: 8px; font-size: 0.85rem; color: #6c757d; padding-top: 5px; border-top: 1px dashed #dee2e6; }
 
         /* 悬浮工具栏 */
         .sticky-toolbar { position: sticky; top: 0; z-index: 1000; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(5px); padding: 15px 0; border-bottom: 1px solid #eee; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
@@ -107,18 +110,25 @@
     <div id="step3" class="step-container">
         <div class="sticky-toolbar">
             <div class="container">
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div class="d-flex align-items-center">
                         <button class="btn btn-outline-secondary me-3" onclick="confirmBackToConfig()">
                             <i class="fa-solid fa-arrow-left me-1"></i>重选
                         </button>
                         <h4 class="mb-0 fw-bold text-primary" id="examTitle">模拟试卷</h4>
                     </div>
-                    <div class="d-flex gap-2">
+                    
+                    <div class="d-flex gap-2 align-items-center">
+                        <!-- 结果显示开关（仅提交后可用） -->
+                        <div class="form-check form-switch me-2 d-none" id="sourceToggleContainer">
+                            <input class="form-check-input" type="checkbox" id="toggleSource" onchange="toggleSourceDisplay()">
+                            <label class="form-check-label" for="toggleSource">显示题目来源</label>
+                        </div>
+                        
                         <button class="btn btn-success" onclick="submitExam()" id="btnSubmit">
                             <i class="fa-solid fa-check-double me-1"></i>交卷
                         </button>
-                        <button class="btn btn-warning text-white" onclick="exportToWord()">
+                        <button class="btn btn-warning text-white" onclick="openExportModal()">
                             <i class="fa-solid fa-file-word me-1"></i>导出Word
                         </button>
                     </div>
@@ -139,12 +149,38 @@
     </div>
 </div>
 
+<!-- 导出模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导出 Word 设置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>请选择导出格式：</p>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="exportWithSource">
+                    <label class="form-check-label" for="exportWithSource">
+                        包含题目来源信息 <small class="text-muted">(如：[卷(一) #10])</small>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="confirmExport()">确认导出</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 <script>
-    // === 配置: 支持的文件和题型 ===
+    // === 配置 ===
     const courses = [
         { name: "中医诊断学", file: "中医诊断学.json", icon: "fa-user-doctor" },
         { name: "经络腧穴学", file: "经络腧穴学.json", icon: "fa-share-nodes" },
@@ -167,10 +203,11 @@
     let fullQuestionBank = [];
     let currentExamData = [];
     let isExamSubmitted = false;
+    let exportModalInstance = null;
 
     document.addEventListener('DOMContentLoaded', () => { renderCourseGrid(); });
 
-    // 1. 渲染课程卡片
+    // 1. 课程渲染
     function renderCourseGrid() {
         const grid = document.getElementById('courseGrid');
         grid.innerHTML = courses.map(course => `
@@ -189,7 +226,7 @@
         if (step === 1) document.getElementById('currentCourseDisplay').textContent = "";
     }
 
-    // 2. 加载题库
+    // 2. 加载数据
     function loadCourse(file, name) {
         const spinner = document.getElementById('loadingSpinner');
         spinner.style.display = 'flex';
@@ -206,7 +243,7 @@
             .finally(() => spinner.style.display = 'none');
     }
 
-    // 3. 初始化配置
+    // 3. 配置
     function initConfiguration() {
         const groups = {};
         fullQuestionBank.forEach(q => {
@@ -217,11 +254,7 @@
         const container = document.getElementById('configForm');
         container.innerHTML = '';
         let total = 0;
-
-        // 按预定义顺序排序
-        const sortedTypes = Object.keys(groups).sort((a, b) => {
-            return (typeMap[a]?.sort || 99) - (typeMap[b]?.sort || 99);
-        });
+        const sortedTypes = Object.keys(groups).sort((a, b) => (typeMap[a]?.sort || 99) - (typeMap[b]?.sort || 99));
 
         sortedTypes.forEach(type => {
             const list = groups[type];
@@ -266,14 +299,12 @@
             groups[q.type].push(q);
         });
 
-        // 按配置顺序生成
         inputs.forEach(input => {
             const type = input.dataset.type;
             const num = parseInt(input.value) || 0;
             if (groups[type] && num > 0) {
                 const shuffled = shuffleArray([...groups[type]]);
                 const selected = shuffled.slice(0, num);
-                // 打乱选项
                 selected.forEach(q => {
                     if (q.type === 'single_choice' || q.type === 'multiple_choice') {
                         q.shuffledOptions = shuffleArray([...q.options]);
@@ -290,14 +321,29 @@
         goToStep(3);
     }
 
+    // 格式化题目来源
+    function formatSource(paper, id) {
+        // 尝试简化：中医诊断学复习资料(一) -> 卷(一)
+        let simpleName = paper;
+        const match = paper.match(/（(.*?)）|\((.*?)\)/);
+        if (match) {
+            simpleName = `卷(${match[1] || match[2]})`;
+        }
+        return `[来源: ${simpleName} #${id}]`;
+    }
+
     // 5. 渲染试卷
     function renderExam() {
         const container = document.getElementById('examContent');
         container.innerHTML = '';
         document.getElementById('examTitle').innerText = `${currentCourseName} - 模拟试卷`;
+        
+        // 重置按钮和开关
         document.getElementById('btnSubmit').disabled = false;
         document.getElementById('btnSubmitBottom').disabled = false;
         document.getElementById('btnSubmit').innerHTML = '<i class="fa-solid fa-check-double me-1"></i>交卷';
+        document.getElementById('sourceToggleContainer').classList.add('d-none');
+        document.getElementById('toggleSource').checked = false;
 
         let gIdx = 1;
 
@@ -311,10 +357,10 @@
             `;
 
             section.questions.forEach(q => {
+                const sourceText = formatSource(q.paper, q.id);
                 let html = `<div class="question-card" id="card_${q.id}">`;
                 html += `<div class="d-flex mb-3"><div class="fw-bold fs-5 me-2 text-primary">${gIdx}.</div><div class="fs-5">${q.question}</div></div>`;
 
-                // --- 渲染逻辑 ---
                 if (section.type === 'single_choice') {
                     const chars = ['A','B','C','D','E','F'];
                     html += `<div class="ms-4">`;
@@ -362,7 +408,8 @@
                     q.questions.forEach((subQ, idx) => {
                         html += `<div class="mb-2 mt-4 fw-bold">(${idx+1}) ${subQ.question}</div>
                                  <textarea class="form-control mb-2" rows="3" placeholder="答案..."></textarea>
-                                 <div class="result-box" id="res_${q.id}_${idx}"></div>`;
+                                 <div class="result-box" id="res_${q.id}_${idx}"></div>
+                                 <div class="source-tag source-tag-${q.id}">${sourceText}</div>`;
                     });
                     html += `</div>`;
                     gIdx++;
@@ -371,7 +418,8 @@
                 }
 
                 if (section.type !== 'case_analysis') {
-                    html += `<div class="result-box" id="res_${q.id}"></div></div>`;
+                    html += `<div class="result-box" id="res_${q.id}"></div>
+                             <div class="source-tag source-tag-${q.id}">${sourceText}</div></div>`;
                     gIdx++;
                     container.innerHTML += html;
                 }
@@ -379,18 +427,27 @@
         });
     }
 
+    // 切换来源显示
+    function toggleSourceDisplay() {
+        const show = document.getElementById('toggleSource').checked;
+        const tags = document.querySelectorAll('.source-tag');
+        tags.forEach(tag => tag.style.display = show ? 'block' : 'none');
+    }
+
     function confirmBackToConfig() {
         if (confirm("返回将丢失当前进度，确定吗？")) goToStep(2);
     }
 
-    // 6. 提交判分
+    // 6. 提交
     function submitExam() {
         if (isExamSubmitted) return;
         if (!confirm("确定提交吗？")) return;
 
+        // 显示“显示题目来源”开关
+        document.getElementById('sourceToggleContainer').classList.remove('d-none');
+
         currentExamData.forEach(section => {
             section.questions.forEach(q => {
-                // 案例题处理
                 if (section.type === 'case_analysis') {
                     q.questions.forEach((subQ, idx) => {
                         const box = document.getElementById(`res_${q.id}_${idx}`);
@@ -403,22 +460,17 @@
                     const box = document.getElementById(`res_${q.id}`);
                     box.style.display = 'block';
 
-                    // 客观题判分
                     if (['single_choice', 'true_false', 'multiple_choice'].includes(section.type)) {
                         let isCorrect = false;
                         let userAns = [];
 
                         if (section.type === 'multiple_choice') {
-                            // 多选处理
                             const checked = document.querySelectorAll(`input[name="q_${q.id}"]:checked`);
                             userAns = Array.from(checked).map(c => c.value);
-                            // 数组比较：长度相同且包含所有元素
                             if (Array.isArray(q.answer)) {
-                                isCorrect = userAns.length === q.answer.length && 
-                                            userAns.every(val => q.answer.includes(val));
+                                isCorrect = userAns.length === q.answer.length && userAns.every(val => q.answer.includes(val));
                             }
                         } else {
-                            // 单选/判断
                             const checked = document.querySelector(`input[name="q_${q.id}"]:checked`);
                             const val = checked ? checked.value : '';
                             isCorrect = (val === q.answer);
@@ -432,9 +484,7 @@
                             const correctText = Array.isArray(q.answer) ? q.answer.join("，") : q.answer;
                             box.innerHTML = `<div><i class="fa-solid fa-circle-xmark me-1"></i><strong>错误</strong></div><div class="mt-1 small">正确答案：${correctText}</div>`;
                         }
-                    } 
-                    // 主观题
-                    else {
+                    } else {
                         box.className = "result-box result-correct";
                         box.innerHTML = `<strong>参考答案：</strong> ${q.answer}`;
                     }
@@ -449,9 +499,22 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // 7. 导出 Word
-    function exportToWord() {
+    // 7. 导出功能
+    function openExportModal() {
         if (!currentExamData.length) return;
+        if (!exportModalInstance) {
+            exportModalInstance = new bootstrap.Modal(document.getElementById('exportModal'));
+        }
+        exportModalInstance.show();
+    }
+
+    function confirmExport() {
+        const withSource = document.getElementById('exportWithSource').checked;
+        exportModalInstance.hide();
+        exportToWord(withSource);
+    }
+
+    function exportToWord(withSource) {
         const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = docx;
         const children = [];
         const answerKeys = []; 
@@ -470,9 +533,15 @@
             answerKeys.push(new Paragraph({ text: info.name, heading: HeadingLevel.HEADING_2, spacing: { before: 100 } }));
 
             section.questions.forEach(q => {
+                const sourceStr = withSource ? `  ${formatSource(q.paper, q.id)}` : "";
+
                 if (section.type === 'case_analysis') {
                     children.push(new Paragraph({
-                        children: [ new TextRun({ text: `【案例 ${qIndex}】`, bold: true }), new TextRun({ text: q.context, italics: true }) ],
+                        children: [ 
+                            new TextRun({ text: `【案例 ${qIndex}】`, bold: true }), 
+                            new TextRun({ text: q.context, italics: true }),
+                            new TextRun({ text: sourceStr, size: 16, color: "888888" }) 
+                        ],
                         spacing: { before: 100 }
                     }));
                     q.questions.forEach((subQ, idx) => {
@@ -482,7 +551,10 @@
                     qIndex++;
                 } else {
                     children.push(new Paragraph({
-                        children: [ new TextRun({ text: `${qIndex}. ${q.question}`, bold: true }) ],
+                        children: [ 
+                            new TextRun({ text: `${qIndex}. ${q.question}`, bold: true }),
+                            new TextRun({ text: sourceStr, size: 16, color: "888888" })
+                        ],
                         spacing: { before: 100 }
                     }));
 
@@ -492,13 +564,11 @@
                             children.push(new Paragraph({ text: `${chars[i]}. ${opt}`, indent: { left: 400 } }));
                         });
                         
-                        // 计算正确选项字母
                         let keyText = "";
                         if (section.type === 'single_choice') {
                             const idx = q.shuffledOptions.indexOf(q.answer);
                             keyText = idx !== -1 ? chars[idx] : "?";
                         } else {
-                            // 多选：找出所有正确答案对应的索引，并排序
                             const indices = [];
                             if(Array.isArray(q.answer)) {
                                 q.answer.forEach(ans => {
@@ -509,14 +579,13 @@
                             keyText = indices.sort().map(i => chars[i]).join("");
                         }
                         answerKeys.push(new Paragraph({ text: `${qIndex}. ${keyText}` }));
-                        children.push(new Paragraph({ text: "" })); // 空行
+                        children.push(new Paragraph({ text: "" }));
                     } 
                     else if (section.type === 'true_false') {
                         children.push(new Paragraph({ text: "(   )", alignment: AlignmentType.RIGHT }));
                         answerKeys.push(new Paragraph({ text: `${qIndex}. ${q.answer}` }));
                     } 
                     else {
-                        // 主观题留白
                         const space = section.type === 'essay' ? 4000 : 2000;
                         children.push(new Paragraph({ text: " ", spacing: { after: space } }));
                         answerKeys.push(new Paragraph({ text: `${qIndex}. ${q.answer}` }));
